@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Learn Topper — Video Stream Downloader</title>
+    <link rel="icon" type="image/jpeg" href="https://learntopper.in/logo.jpg">
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- FFmpeg.wasm v0.11.6 (Single-threaded core for broad compatibility without Cross-Origin Isolation headers) -->
+    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #09090b;
+            color: #fafafa;
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.15) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(168, 85, 247, 0.15) 0px, transparent 50%);
+            min-height: 100vh;
+        }
+
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .glass-card {
+            background: rgba(24, 24, 27, 0.75);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+
+        .format-radio:checked + .format-label {
+            border-color: #6366f1;
+            background: rgba(99, 102, 241, 0.12);
+            color: #ffffff;
+        }
+
+        .format-radio:checked + .format-label .check-icon {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        /* Custom scrollbar for logs */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.02);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.25);
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center p-4 sm:p-6">
+
+    <div class="w-full max-w-2xl glass-card rounded-2xl p-6 sm:p-8 space-y-6">
+        
+        <!-- Header -->
+        <div class="flex items-center justify-between border-b border-zinc-800 pb-5">
+            <div class="flex items-center gap-3.5">
+                <div class="relative w-12 h-12 rounded-xl overflow-hidden border border-indigo-500/30 bg-zinc-900 shadow-lg shadow-indigo-500/10 flex-shrink-0 flex items-center justify-center">
+                    <img 
+                        src="https://learntopper.in/logo.jpg" 
+                        alt="Learn Topper Logo" 
+                        class="w-full h-full object-cover"
+                        onerror="this.style.display='none'; document.getElementById('fallback-logo').classList.remove('hidden');"
+                    >
+                    <i id="fallback-logo" data-lucide="graduation-cap" class="w-6 h-6 text-indigo-400 hidden"></i>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h1 class="text-xl font-bold tracking-tight text-white">Learn Topper</h1>
+                        <span class="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-md bg-indigo-500/15 text-indigo-400 border border-indigo-500/20">Downloader</span>
+                    </div>
+                    <p class="text-xs text-zinc-400 mt-0.5">M3U8 Stream Fetcher & Multi-Format Converter</p>
+                </div>
+            </div>
+            <span id="endpoint-badge" class="hidden items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                Auto-loaded URL
+            </span>
+        </div>
+
+        <!-- URL Input -->
+        <div class="space-y-2">
+            <div class="flex justify-between items-center">
+                <label for="m3u8-url" class="block text-sm font-medium text-zinc-300">M3U8 Playlist URL</label>
+                <button type="button" id="load-sample-btn" class="text-xs text-indigo-400 hover:text-indigo-300 transition-colors">
+                    Load Test Stream
+                </button>
+            </div>
+            <div class="relative">
+                <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
+                    <i data-lucide="link" class="w-4 h-4"></i>
+                </div>
+                <input 
+                    type="url" 
+                    id="m3u8-url" 
+                    placeholder="https://example.com/playlist.m3u8"
+                    class="w-full pl-10 pr-10 py-3 bg-zinc-900/90 border border-zinc-800 rounded-xl text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all mono"
+                >
+                <button type="button" id="clear-url-btn" title="Clear URL" class="absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-500 hover:text-zinc-300 hidden">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+            <p class="text-[11px] text-zinc-500">
+                Tip: Open via <code class="text-zinc-400 bg-zinc-800/80 px-1.5 py-0.5 rounded">/download?https://.../video.m3u8</code> to auto-fill.
+            </p>
+        </div>
+
+        <!-- Quality Selector (Appears if Master Playlist is detected) -->
+        <div id="quality-section" class="hidden space-y-2 animate-fade-in">
+            <label for="quality-select" class="block text-sm font-medium text-zinc-300">Stream Quality / Variant</label>
+            <select id="quality-select" class="w-full px-3.5 py-2.5 bg-zinc-900/90 border border-zinc-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500">
+            </select>
+        </div>
+
+        <!-- Output Format Selection -->
+        <div class="space-y-2.5">
+            <label class="block text-sm font-medium text-zinc-300">Target Output Format</label>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                
+                <!-- MP4 -->
+                <div>
+                    <input type="radio" name="format" id="fmt-mp4" value="mp4" class="format-radio sr-only" checked>
+                    <label for="fmt-mp4" class="format-label flex flex-col p-3 rounded-xl border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800/60 cursor-pointer transition-all relative">
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="font-bold text-sm text-zinc-200">MP4</span>
+                            <i data-lucide="check-circle-2" class="check-icon w-4 h-4 text-indigo-400 opacity-0 transform scale-75 transition-all"></i>
+                        </div>
+                        <span class="text-[11px] text-zinc-400">Fast Remux</span>
+                    </label>
+                </div>
+
+                <!-- MKV -->
+                <div>
+                    <input type="radio" name="format" id="fmt-mkv" value="mkv" class="format-radio sr-only">
+                    <label for="fmt-mkv" class="format-label flex flex-col p-3 rounded-xl border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800/60 cursor-pointer transition-all relative">
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="font-bold text-sm text-zinc-200">MKV</span>
+                            <i data-lucide="check-circle-2" class="check-icon w-4 h-4 text-indigo-400 opacity-0 transform scale-75 transition-all"></i>
+                        </div>
+                        <span class="text-[11px] text-zinc-400">Matroska</span>
+                    </label>
+                </div>
+
+                <!-- WEBM -->
+                <div>
+                    <input type="radio" name="format" id="fmt-webm" value="webm" class="format-radio sr-only">
+                    <label for="fmt-webm" class="format-label flex flex-col p-3 rounded-xl border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800/60 cursor-pointer transition-all relative">
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="font-bold text-sm text-zinc-200">WEBM</span>
+                            <i data-lucide="check-circle-2" class="check-icon w-4 h-4 text-indigo-400 opacity-0 transform scale-75 transition-all"></i>
+                        </div>
+                        <span class="text-[11px] text-zinc-400">VP8 Transcode</span>
+                    </label>
+                </div>
+
+                <!-- TS -->
+                <div>
+                    <input type="radio" name="format" id="fmt-ts" value="ts" class="format-radio sr-only">
+                    <label for="fmt-ts" class="format-label flex flex-col p-3 rounded-xl border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800/60 cursor-pointer transition-all relative">
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="font-bold text-sm text-zinc-200">TS</span>
+                            <i data-lucide="check-circle-2" class="check-icon w-4 h-4 text-indigo-400 opacity-0 transform scale-75 transition-all"></i>
+                        </div>
+                        <span class="text-[11px] text-zinc-400">Raw Stream</span>
+                    </label>
+                </div>
+
+            </div>
+            <p id="format-note" class="text-[11px] text-zinc-400 flex items-center gap-1.5 pt-1">
+                <i data-lucide="zap" class="w-3.5 h-3.5 text-amber-400"></i>
+                <span><strong>MP4</strong> uses lossless stream copy (instantaneous after segment download).</span>
+            </p>
+        </div>
+
+        <!-- Action Button -->
+        <div class="pt-1 flex gap-3">
+            <button id="download-btn" class="flex-1 py-3 px-4 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl shadow-lg shadow-indigo-500/20 transition-all flex items-center justify-center gap-2">
+                <i data-lucide="download" class="w-4 h-4"></i>
+                <span id="btn-text">Analyze & Download Video</span>
+            </button>
+            <button id="cancel-btn" class="hidden py-3 px-4 bg-rose-600/20 hover:bg-rose-600/30 text-rose-400 border border-rose-500/30 font-semibold rounded-xl transition-all flex items-center justify-center gap-2">
+                <i data-lucide="square" class="w-4 h-4"></i>
+                <span>Stop</span>
+            </button>
+        </div>
+
+        <!-- Progress Section -->
+        <div id="progress-container" class="hidden space-y-3 pt-2 border-t border-zinc-800/80">
+            <div class="flex justify-between items-end text-xs">
+                <span id="status-text" class="font-medium text-zinc-300">Initializing...</span>
+                <span id="progress-percent" class="mono font-semibold text-indigo-400">0%</span>
+            </div>
+            
+            <!-- Progress Bar -->
+            <div class="w-full h-2.5 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800">
+                <div id="progress-bar" class="h-full bg-gradient-to-r from-indigo-500 to-purple-500 w-0 transition-all duration-200 rounded-full"></div>
+            </div>
+
+            <!-- Stats Row -->
+            <div class="flex justify-between text-[11px] text-zinc-500 mono">
+                <span id="segment-counter">Segments: 0 / 0</span>
+                <span id="size-counter">Downloaded: 0.00 MB</span>
+            </div>
+
+            <!-- Terminal Log Box -->
+            <div class="bg-zinc-950/90 border border-zinc-800/80 rounded-xl p-3">
+                <div class="flex items-center justify-between mb-1.5 pb-1.5 border-b border-zinc-900">
+                    <span class="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Learn Topper Console</span>
+                    <span class="text-[10px] text-zinc-600 mono">HLS Engine v1.0</span>
+                </div>
+                <div id="log-box" class="h-28 overflow-y-auto text-xs mono text-zinc-400 space-y-1"></div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="pt-2 border-t border-zinc-800/60 flex items-center justify-between text-[11px] text-zinc-500">
+            <span>Powered by <strong class="text-zinc-300 font-medium">Learn Topper</strong></span>
+            <a href="https://learntopper.in" target="_blank" rel="noopener noreferrer" class="text-indigo-400 hover:text-indigo-300 transition-colors flex items-center gap-1">
+                <span>learntopper.in</span>
+                <i data-lucide="external-link" class="w-3 h-3"></i>
+            </a>
+        </div>
+
+    </div>
+
+    <script>
+        // Initialize Lucide Icons
+        lucide.createIcons();
+
+        // DOM Elements
+        const urlInput = document.getElementById('m3u8-url');
+        const clearUrlBtn = document.getElementById('clear-url-btn');
+        const loadSampleBtn = document.getElementById('load-sample-btn');
+        const endpointBadge = document.getElementById('endpoint-badge');
+        const qualitySection = document.getElementById('quality-section');
+        const qualitySelect = document.getElementById('quality-select');
+        const formatRadios = document.querySelectorAll('input[name="format"]');
+        const formatNote = document.getElementById('format-note');
+        const downloadBtn = document.getElementById('download-btn');
+        const cancelBtn = document.getElementById('cancel-btn');
+        const btnText = document.getElementById('btn-text');
+        const progressContainer = document.getElementById('progress-container');
+        const statusText = document.getElementById('status-text');
+        const progressPercent = document.getElementById('progress-percent');
+        const progressBar = document.getElementById('progress-bar');
+        const segmentCounter = document.getElementById('segment-counter');
+        const sizeCounter = document.getElementById('size-counter');
+        const logBox = document.getElementById('log-box');
+
+        let abortController = null;
+        let ffmpegInstance = null;
+        let parsedVariants = [];
+
+        // Format descriptions
+        const formatDescriptions = {
+            mp4: '<span><strong>MP4</strong> uses lossless stream copy (instantaneous after segment download).</span>',
+            mkv: '<span><strong>MKV</strong> wraps streams losslessly into a Matroska container.</span>',
+            webm: '<span><strong>WEBM</strong> transcodes video to VP8 in-browser (slower on long videos).</span>',
+            ts: '<span><strong>TS</strong> merges raw MPEG-2 Transport Stream segments directly (no FFmpeg needed).</span>'
+        };
+
+        formatRadios.forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                formatNote.innerHTML = `<i data-lucide="zap" class="w-3.5 h-3.5 text-amber-400"></i>${formatDescriptions[e.target.value]}`;
+                lucide.createIcons();
+            });
+        });
+
+        // Parse Endpoint Query Parameter: /download?example.m3u8 or /download?url=example.m3u8
+        function parseEndpointUrl() {
+            const search = window.location.search;
+            if (!search || search.length <= 1) return;
+
+            let rawQuery = decodeURIComponent(search.substring(1));
+            
+            // Support both ?https://example.com/a.m3u8 and ?url=https://example.com/a.m3u8
+            if (rawQuery.startsWith('url=')) {
+                rawQuery = rawQuery.substring(4);
+            } else if (rawQuery.includes('=') && !rawQuery.startsWith('http')) {
+                const params = new URLSearchParams(search);
+                rawQuery = params.get('url') || params.get('m3u8') || params.get('src') || rawQuery;
+            }
+
+            if (rawQuery) {
+                urlInput.value = rawQuery;
+                endpointBadge.classList.remove('hidden');
+                endpointBadge.classList.add('inline-flex');
+                toggleClearBtn();
+                // Automatically inspect playlist variants if URL was passed via endpoint
+                inspectPlaylist(rawQuery).catch(() => {});
+            }
+        }
+
+        function toggleClearBtn() {
+            if (urlInput.value.trim().length > 0) {
+                clearUrlBtn.classList.remove('hidden');
+            } else {
+                clearUrlBtn.classList.add('hidden');
+            }
+        }
+
+        urlInput.addEventListener('input', () => {
+            toggleClearBtn();
+            qualitySection.classList.add('hidden');
+            parsedVariants = [];
+        });
+
+        clearUrlBtn.addEventListener('click', () => {
+            urlInput.value = '';
+            toggleClearBtn();
+            qualitySection.classList.add('hidden');
+            parsedVariants = [];
+            endpointBadge.classList.add('hidden');
+            urlInput.focus();
+        });
+
+        // Public CORS-enabled test HLS stream (Mux Big Buck Bunny)
+        loadSampleBtn.addEventListener('click', () => {
+            const sampleUrl = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8';
+            urlInput.value = sampleUrl;
+            toggleClearBtn();
+            inspectPlaylist(sampleUrl);
+        });
+
+        function log(msg, type = 'info') {
+            const entry = document.createElement('div');
+            const time = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            let color = 'text-zinc-400';
+            if (type === 'success') color = 'text-emerald-400';
+            if (type === 'error') color = 'text-rose-400';
+            if (type === 'warn') color = 'text-amber-400';
+            
+            entry.className = color;
+            entry.textContent = `[${time}] ${msg}`;
+            logBox.appendChild(entry);
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+
+        function resolveUrl(baseUrl, relativeUrl) {
+            try {
+                return new URL(relativeUrl, baseUrl).href;
+            } catch {
+                return relativeUrl;
+            }
+        }
+
+        async function fetchText(url, signal) {
+            const res = await fetch(url, { signal });
+            if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${url}`);
+            return await res.text();
+        }
+
+        // Parse M3U8 to check if it's a Master Playlist (multiple qualities) or Media Playlist
+        async function inspectPlaylist(url) {
+            try {
+                const text = await fetchText(url);
+                if (text.includes('#EXT-X-STREAM-INF')) {
+                    const lines = text.split(/\r?\n/);
+                    const variants = [];
+                    for (let i = 0; i < lines.length; i++) {
+                        if (lines[i].startsWith('#EXT-X-STREAM-INF')) {
+                            const info = lines[i];
+                            const resMatch = info.match(/RESOLUTION=(\d+x\d+)/);
+                            const bwMatch = info.match(/BANDWIDTH=(\d+)/);
+                            const nextLine = lines[i + 1]?.trim();
+                            if (nextLine && !nextLine.startsWith('#')) {
+                                const resolution = resMatch ? resMatch[1] : 'Unknown Res';
+                                const kbps = bwMatch ? Math.round(parseInt(bwMatch[1], 10) / 1000) + ' kbps' : '';
+                                variants.push({
+                                    label: `${resolution} ${kbps ? '(' + kbps + ')' : ''}`,
+                                    url: resolveUrl(url, nextLine),
+                                    bandwidth: bwMatch ? parseInt(bwMatch[1], 10) : 0
+                                });
+                            }
+                        }
+                    }
+                    // Sort highest bandwidth first
+                    variants.sort((a, b) => b.bandwidth - a.bandwidth);
+                    if (variants.length > 0) {
+                        parsedVariants = variants;
+                        qualitySelect.innerHTML = variants.map((v, idx) => 
+                            `<option value="${v.url}">${idx === 0 ? '★ Best: ' : ''}${v.label}</option>`
+                        ).join('');
+                        qualitySection.classList.remove('hidden');
+                        return variants[0].url;
+                    }
+                }
+                qualitySection.classList.add('hidden');
+                return url;
+            } catch (err) {
+                throw err;
+            }
+        }
+
+        function extractSegments(m3u8Text, baseUrl) {
+            const lines = m3u8Text.split(/\r?\n/);
+            const segments = [];
+            let initSegment = null;
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+
+                // Handle fMP4 initialization segment if present
+                if (line.startsWith('#EXT-X-MAP:')) {
+                    const uriMatch = line.match(/URI="([^"]+)"/);
+                    if (uriMatch) {
+                        initSegment = resolveUrl(baseUrl, uriMatch[1]);
+                    }
+                } else if (!line.startsWith('#')) {
+                    segments.push(resolveUrl(baseUrl, line));
+                }
+            }
+
+            if (initSegment) {
+                segments.unshift(initSegment);
+            }
+            return segments;
+        }
+
+        async function getFFmpeg() {
+            if (ffmpegInstance) return ffmpegInstance;
+            const { createFFmpeg } = FFmpeg;
+            ffmpegInstance = createFFmpeg({
+                log: false,
+                corePath: 'https://unpkg.com/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js',
+                mainName: 'main'
+            });
+            log('Loading FFmpeg WASM engine (first run only)...', 'warn');
+            await ffmpegInstance.load();
+            log('FFmpeg engine ready.', 'success');
+            return ffmpegInstance;
+        }
+
+        function triggerBrowserDownload(blob, filename) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 10000);
+        }
+
+        function setUIState(isDownloading) {
+            downloadBtn.disabled = isDownloading;
+            urlInput.disabled = isDownloading;
+            qualitySelect.disabled = isDownloading;
+            formatRadios.forEach(r => r.disabled = isDownloading);
+            
+            if (isDownloading) {
+                cancelBtn.classList.remove('hidden');
+                progressContainer.classList.remove('hidden');
+                btnText.textContent = 'Processing Stream...';
+            } else {
+                cancelBtn.classList.add('hidden');
+                btnText.textContent = 'Analyze & Download Video';
+            }
+        }
+
+        cancelBtn.addEventListener('click', () => {
+            if (abortController) {
+                abortController.abort();
+                log('Download aborted by user.', 'error');
+                statusText.textContent = 'Cancelled';
+                setUIState(false);
+            }
+        });
+
+        downloadBtn.addEventListener('click', async () => {
+            const rawUrl = urlInput.value.trim();
+            if (!rawUrl) {
+                alert('Please enter a valid M3U8 URL.');
+                urlInput.focus();
+                return;
+            }
+
+            const selectedFormat = document.querySelector('input[name="format"]:checked').value;
+            abortController = new AbortController();
+            const signal = abortController.signal;
+
+            // Reset UI
+            logBox.innerHTML = '';
+            progressBar.style.width = '0%';
+            progressPercent.textContent = '0%';
+            segmentCounter.textContent = 'Segments: 0 / 0';
+            sizeCounter.textContent = 'Downloaded: 0.00 MB';
+            setUIState(true);
+
+            try {
+                statusText.textContent = 'Fetching playlist...';
+                log(`Fetching manifest: ${rawUrl}`);
+
+                let targetPlaylistUrl = rawUrl;
+                if (!qualitySection.classList.contains('hidden') && qualitySelect.value) {
+                    targetPlaylistUrl = qualitySelect.value;
+                } else {
+                    targetPlaylistUrl = await inspectPlaylist(rawUrl);
+                }
+
+                if (targetPlaylistUrl !== rawUrl) {
+                    log(`Selected variant stream: ${targetPlaylistUrl}`);
+                }
+
+                const playlistText = await fetchText(targetPlaylistUrl, signal);
+                
+                if (playlistText.includes('#EXT-X-KEY')) {
+                    log('Warning: Encrypted (#EXT-X-KEY) stream detected. Output may be unreadable if DRM-protected.', 'warn');
+                }
+
+                const segments = extractSegments(playlistText, targetPlaylistUrl);
+                if (segments.length === 0) {
+                    throw new Error('No media segments found in the M3U8 playlist.');
+                }
+
+                log(`Found ${segments.length} media segments. Starting concurrent download...`, 'success');
+                statusText.textContent = 'Downloading video segments...';
+
+                // Download segments with concurrency pool (6 workers)
+                const buffers = new Array(segments.length);
+                let completed = 0;
+                let totalBytes = 0;
+                const concurrency = 6;
+                let currentIndex = 0;
+
+                async function worker() {
+                    while (currentIndex < segments.length) {
+                        if (signal.aborted) return;
+                        const idx = currentIndex++;
+                        const segUrl = segments[idx];
+                        
+                        const res = await fetch(segUrl, { signal });
+                        if (!res.ok) throw new Error(`Segment ${idx + 1} failed (HTTP ${res.status})`);
+                        const buf = await res.arrayBuffer();
+                        
+                        buffers[idx] = new Uint8Array(buf);
+                        completed++;
+                        totalBytes += buf.byteLength;
+
+                        // Update progress (0% to 80% reserved for downloading)
+                        const pct = Math.round((completed / segments.length) * (selectedFormat === 'ts' ? 100 : 80));
+                        progressBar.style.width = `${pct}%`;
+                        progressPercent.textContent = `${pct}%`;
+                        segmentCounter.textContent = `Segments: ${completed} / ${segments.length}`;
+                        sizeCounter.textContent = `Downloaded: ${(totalBytes / (1024 * 1024)).toFixed(2)} MB`;
+                    }
+                }
+
+                const workers = Array.from({ length: Math.min(concurrency, segments.length) }, () => worker());
+                await Promise.all(workers);
+
+                if (signal.aborted) return;
+
+                log('All segments downloaded. Concatenating binary stream...', 'success');
+
+                // Merge all Uint8Arrays into one
+                const mergedStream = new Uint8Array(totalBytes);
+                let offset = 0;
+                for (const chunk of buffers) {
+                    mergedStream.set(chunk, offset);
+                    offset += chunk.byteLength;
+                }
+
+                // Derive clean base filename prefixed with LearnTopper
+                let baseName = 'LearnTopper_Video';
+                try {
+                    const urlObj = new URL(rawUrl);
+                    const pathPart = urlObj.pathname.split('/').pop().replace(/\.m3u8$/i, '');
+                    if (pathPart) baseName = `LearnTopper_${pathPart.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+                } catch {}
+
+                // If raw TS is requested, skip FFmpeg and save immediately
+                if (selectedFormat === 'ts') {
+                    statusText.textContent = 'Saving TS file...';
+                    const blob = new Blob([mergedStream], { type: 'video/mp2t' });
+                    triggerBrowserDownload(blob, `${baseName}.ts`);
+                    log(`Saved ${baseName}.ts successfully!`, 'success');
+                    statusText.textContent = 'Download Complete!';
+                    setUIState(false);
+                    return;
+                }
+
+                // Remux / Transcode using FFmpeg.wasm
+                statusText.textContent = `Converting to ${selectedFormat.toUpperCase()}...`;
+                const ffmpeg = await getFFmpeg();
+                
+                ffmpeg.FS('writeFile', 'input.ts', mergedStream);
+                const outputFilename = `output.${selectedFormat}`;
+
+                if (selectedFormat === 'mp4') {
+                    log('Remuxing to MP4 (copying codecs + aac_adtstoasc)...');
+                    await ffmpeg.run('-i', 'input.ts', '-c', 'copy', '-bsf:a', 'aac_adtstoasc', outputFilename);
+                } else if (selectedFormat === 'mkv') {
+                    log('Remuxing to MKV container...');
+                    await ffmpeg.run('-i', 'input.ts', '-c', 'copy', outputFilename);
+                } else if (selectedFormat === 'webm') {
+                    log('Transcoding to WebM (VP8/Vorbis)... Please wait.');
+                    await ffmpeg.run('-i', 'input.ts', '-c:v', 'libvpx', '-b:v', '1M', '-c:a', 'libvorbis', outputFilename);
+                }
+
+                progressBar.style.width = '100%';
+                progressPercent.textContent = '100%';
+
+                const outputData = ffmpeg.FS('readFile', outputFilename);
+                const mimeTypes = {
+                    mp4: 'video/mp4',
+                    mkv: 'video/x-matroska',
+                    webm: 'video/webm'
+                };
+
+                const finalBlob = new Blob([outputData.buffer], { type: mimeTypes[selectedFormat] });
+                triggerBrowserDownload(finalBlob, `${baseName}.${selectedFormat}`);
+
+                // Cleanup virtual FS
+                try {
+                    ffmpeg.FS('unlink', 'input.ts');
+                    ffmpeg.FS('unlink', outputFilename);
+                } catch {}
+
+                log(`Exported ${baseName}.${selectedFormat} (${(finalBlob.size / (1024 * 1024)).toFixed(2)} MB)!`, 'success');
+                statusText.textContent = 'Download Complete!';
+
+            } catch (err) {
+                if (err.name !== 'AbortError') {
+                    console.error(err);
+                    log(`Error: ${err.message}`, 'error');
+                    if (err.message.includes('Failed to fetch')) {
+                        log('CORS Hint: The target server blocked browser cross-origin requests, or the URL is unreachable.', 'warn');
+                    }
+                    statusText.textContent = 'Failed';
+                }
+            } finally {
+                setUIState(false);
+            }
+        });
+
+        // Run endpoint check on page load
+        window.addEventListener('DOMContentLoaded', parseEndpointUrl);
+    </script>
+</body>
+</html>
